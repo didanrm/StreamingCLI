@@ -1,0 +1,19 @@
+{
+  "name": "streamingcli",
+  "version": "0.1.0",
+  "description": "Node CLI menu for a Python-powered video streamer.",
+  "bin": {
+    "streamingcli": "./bin/streamingcli.js"
+  },
+  "files": [
+    "bin",
+    "stream.py",
+    "providers.py"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "test": "python3 stream.py --self-test && node bin/streamingcli.js --list-providers"
+  }
+}
