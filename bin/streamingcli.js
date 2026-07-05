@@ -6,7 +6,7 @@ const readline = require("readline");
 const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
-const python = process.env.STREAMINGCLI_PYTHON || "python3";
+const python = process.env.STREAMINGCLI_PYTHON || (process.platform === "win32" ? "python" : "python3");
 const streamPy = path.join(root, "stream.py");
 const color = process.stdout.isTTY;
 const c = {
