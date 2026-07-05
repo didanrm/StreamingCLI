@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-3.9%2B-111111?style=flat-square&logo=python&logoColor=white" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/node-%3E%3D16-111111?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node >=16">
   <img src="https://img.shields.io/badge/player-VLC-111111?style=flat-square&logo=vlcmediaplayer&logoColor=white" alt="VLC">
-  <img src="https://img.shields.io/badge/providers-direct%20%7C%20pixeldrain%20%7C%20krakenfiles-111111?style=flat-square" alt="Supported providers">
+  <img src="https://img.shields.io/badge/providers-direct%20%7C%20filedon%20%7C%20pixeldrain%20%7C%20krakenfiles-111111?style=flat-square" alt="Supported providers">
 </p>
 
 <p align="center">

@@ -12,7 +12,7 @@ from typing import Optional
 
 
 USER_AGENT = "StreamCLI/0.1"
-SUPPORTED_PROVIDERS = ("direct", "krakenfiles", "pixeldrain")
+SUPPORTED_PROVIDERS = ("direct", "filedon", "krakenfiles", "pixeldrain")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
 
@@ -31,9 +31,9 @@ class StreamError(Exception):
     pass
 
 
-def http_request(url: str, headers: Optional[dict[str, str]] = None, method: str = "GET"):
+def http_request(url: str, headers: Optional[dict[str, str]] = None, method: str = "GET", data: Optional[bytes] = None):
     req_headers = {"User-Agent": USER_AGENT, **(headers or {})}
-    return OPENER.open(urllib.request.Request(url, headers=req_headers, method=method), timeout=30)
+    return OPENER.open(urllib.request.Request(url, data=data, headers=req_headers, method=method), timeout=30)
 
 
 def header_int(headers, name: str) -> Optional[int]:
@@ -139,6 +139,57 @@ def resolve_krakenfiles(url: str) -> ResolvedStream:
     raise StreamError("Tidak menemukan direct download KrakenFiles di halaman ini.")
 
 
+def resolve_filedon(url: str) -> ResolvedStream:
+    match = re.search(r"filedon\.co/(?:view|embed)/([^/?#]+)", url)
+    if not match:
+        raise StreamError("FileDon URL tidak berisi file slug.")
+    slug = match.group(1)
+    page_url = f"https://filedon.co/view/{slug}"
+
+    with http_request(page_url) as response:
+        page = response.read().decode(errors="ignore")
+    page_match = re.search(r'data-page="([^"]+)"', page)
+    if not page_match:
+        raise StreamError("Tidak menemukan data FileDon di halaman ini.")
+
+    data = json.loads(html.unescape(page_match.group(1)))
+    props = data.get("props", {})
+    sharing = props.get("sharing_meta", {})
+    if sharing.get("is_expired") or sharing.get("limit_reached") or sharing.get("allow_download") is False:
+        raise StreamError("FileDon link expired, limit tercapai, atau download dimatikan.")
+
+    csrf = props.get("flash", {}).get("_token")
+    if not csrf:
+        meta = re.search(r'<meta name="csrf-token" content="([^"]+)"', page)
+        csrf = meta.group(1) if meta else ""
+
+    headers = {
+        "Accept": "text/html, application/xhtml+xml",
+        "Content-Type": "application/json",
+        "Referer": page_url,
+        "X-CSRF-TOKEN": csrf,
+        "X-Inertia": "true",
+        "X-Inertia-Version": data.get("version", ""),
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    with http_request(f"https://filedon.co/download/{slug}", headers, "POST", b"{}") as response:
+        download_data = json.loads(response.read().decode())
+
+    direct_url = download_data.get("props", {}).get("flash", {}).get("download_url")
+    if not direct_url:
+        raise StreamError("FileDon tidak mengirim direct download URL.")
+
+    file_info = props.get("files", {})
+    found_length, found_type, supports_range = probe(direct_url)
+    return ResolvedStream(
+        direct_url,
+        "filedon",
+        length=file_info.get("size") or found_length,
+        content_type=file_info.get("mime_type") or found_type,
+        supports_range=supports_range,
+    )
+
+
 def resolve_direct(url: str) -> ResolvedStream:
     length, content_type, supports_range = probe(url)
     return ResolvedStream(url, "direct", length=length, content_type=content_type, supports_range=supports_range)
@@ -148,6 +199,8 @@ def resolve(url: str) -> ResolvedStream:
     host = urllib.parse.urlparse(url).netloc.lower()
     if "pixeldrain.com" in host:
         return resolve_pixeldrain(url)
+    if "filedon.co" in host:
+        return resolve_filedon(url)
     if "krakenfiles.com" in host:
         return resolve_krakenfiles(url)
     return resolve_direct(url)
@@ -159,9 +212,14 @@ def self_test() -> None:
     assert parser.links == ["/download/abc/file.mp4"]
     parser.feed('<source src="/play/video/abc" type="video/mp4"><a href="/login">Log In</a>')
     assert parser.media == ["/play/video/abc"]
+    page = '<div data-page="{&quot;props&quot;:{&quot;files&quot;:{&quot;size&quot;:9,&quot;mime_type&quot;:&quot;video/mp4&quot;},&quot;flash&quot;:{&quot;_token&quot;:&quot;t&quot;},&quot;sharing_meta&quot;:{&quot;allow_download&quot;:true}},&quot;version&quot;:&quot;v&quot;}"></div>'
+    assert json.loads(html.unescape(re.search(r'data-page="([^"]+)"', page).group(1)))["version"] == "v"
     old_http_request, old_probe = globals()["http_request"], globals()["probe"]
 
     class FakeResponse:
+        def __init__(self, body=b'<a href="/login">Log In</a><source src="/play/video/abc" type="video/mp4"><a class="download" href="/download/abc/file.mp4">Download</a>'):
+            self.body = body
+
         def __enter__(self):
             return self
 
@@ -169,7 +227,7 @@ def self_test() -> None:
             return False
 
         def read(self):
-            return b'<a href="/login">Log In</a><source src="/play/video/abc" type="video/mp4"><a class="download" href="/download/abc/file.mp4">Download</a>'
+            return self.body
 
     try:
         globals()["http_request"] = lambda *_args, **_kwargs: FakeResponse()
@@ -178,5 +236,17 @@ def self_test() -> None:
         assert stream.url == "https://krakenfiles.com/play/video/abc"
         assert stream.provider == "krakenfiles"
         assert stream.supports_range
+
+        def fake_filedon_request(_url, _headers=None, method="GET", _data=None):
+            if method == "POST":
+                return FakeResponse(b'{"props":{"flash":{"download_url":"https://cdn.example/video.mkv"}}}')
+            return FakeResponse(page.encode())
+
+        globals()["http_request"] = fake_filedon_request
+        stream = resolve_filedon("https://filedon.co/view/o5EZpGdUGY")
+        assert stream.url == "https://cdn.example/video.mkv"
+        assert stream.provider == "filedon"
+        assert stream.length == 9
+        assert stream.content_type == "video/mp4"
     finally:
         globals()["http_request"], globals()["probe"] = old_http_request, old_probe
