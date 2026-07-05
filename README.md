@@ -49,7 +49,7 @@ Begitu VLC ditutup, server lokal berhenti dan cache sementara dibersihkan otomat
 
 ## Install
 
-### Dari GitHub
+### Dari GitHub macOS/Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/didanrm/streamingcli/main/install.sh | sh
@@ -58,6 +58,22 @@ curl -fsSL https://raw.githubusercontent.com/didanrm/streamingcli/main/install.s
 Lalu jalankan:
 
 ```bash
+streamingcli
+```
+
+### Dari GitHub Windows
+
+Install Git, Node.js, Python, dan VLC dulu. Kalau pakai PowerShell:
+
+```powershell
+winget install Git.Git OpenJS.NodeJS Python.Python.3.12 VideoLAN.VLC
+npm install -g github:didanrm/streamingcli#main
+setx STREAMINGCLI_PYTHON python
+```
+
+Tutup PowerShell, buka lagi, lalu jalankan:
+
+```powershell
 streamingcli
 ```
 
