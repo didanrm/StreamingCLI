@@ -110,6 +110,12 @@ Lihat provider:
 streamingcli --list-providers
 ```
 
+Update dari branch `main` GitHub:
+
+```bash
+streamingcli --update
+```
+
 ## Opsi
 
 | Opsi | Fungsi |
@@ -119,6 +125,7 @@ streamingcli --list-providers
 | `--port <number>` | Pakai port lokal tertentu |
 | `--quiet` | Sembunyikan log proxy |
 | `--list-providers` | Tampilkan provider yang didukung |
+| `--update` | Install ulang versi terbaru dari GitHub `main` |
 
 ## Cara Kerja
 

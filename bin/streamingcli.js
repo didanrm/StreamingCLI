@@ -7,6 +7,7 @@ const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const python = process.env.STREAMINGCLI_PYTHON || (process.platform === "win32" ? "python" : "python3");
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const streamPy = path.join(root, "stream.py");
 const color = process.stdout.isTTY;
 const c = {
@@ -43,6 +44,16 @@ function runPython(args) {
   const result = spawnSync(python, [streamPy, ...args], { stdio: "inherit" });
   if (result.error) {
     console.error(`streamingcli: gagal menjalankan ${python}: ${result.error.message}`);
+    return 1;
+  }
+  return result.status ?? 1;
+}
+
+function update() {
+  console.log("streamingcli: updating from GitHub main...");
+  const result = spawnSync(npm, ["install", "-g", "github:didanrm/streamingcli#main"], { stdio: "inherit" });
+  if (result.error) {
+    console.error(`streamingcli: gagal menjalankan ${npm}: ${result.error.message}`);
     return 1;
   }
   return result.status ?? 1;
@@ -279,5 +290,9 @@ async function prettyMenu() {
 
 (async () => {
   const args = process.argv.slice(2);
+  if (args.includes("--update")) {
+    process.exitCode = update();
+    return;
+  }
   process.exitCode = args.length ? runPython(args) : await (process.stdin.isTTY ? prettyMenu() : basicMenu());
 })();
