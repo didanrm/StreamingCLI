@@ -163,6 +163,7 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
             self.serve(head_only=False)
 
         def serve(self, head_only: bool) -> None:
+            self._response_started = False
             path = urllib.parse.urlparse(self.path).path
             if path == "/":
                 self.send_response(200)
@@ -184,20 +185,27 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
                 else:
                     self.common_headers(200, stream.length)
                 return
-            if requested and cache.contains(*requested):
-                self.send_cached(*requested, head_only=head_only)
-                return
-            if requested and not stream.supports_range:
+            cached = bool(requested and cache.contains(*requested))
+            if requested and not cached and not stream.supports_range:
                 self.send_error(416, "Provider does not support seeking outside cached bytes")
                 return
             try:
-                self.fetch_and_send(requested, head_only=head_only)
-            except BrokenPipeError:
-                pass
+                if cached:
+                    self.send_cached(*requested, head_only=head_only)
+                else:
+                    self.fetch_and_send(requested, head_only=head_only)
             except urllib.error.HTTPError as exc:
-                self.send_error(exc.code, f"Upstream error: {exc.reason}")
+                self.proxy_error(exc.code, f"Upstream error: {exc.reason}")
             except Exception as exc:
-                self.send_error(502, f"Upstream error: {exc}")
+                self.proxy_error(502, f"Upstream error: {exc}")
+
+        def proxy_error(self, status: int, message: str) -> None:
+            if self._response_started:
+                return
+            try:
+                self.send_error(status, message)
+            except ConnectionError:
+                pass
 
         def common_headers(self, status: int, body_length: Optional[int] = None, content_range: Optional[str] = None) -> None:
             self.send_response(status)
@@ -209,6 +217,7 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
             if content_range:
                 self.send_header("Content-Range", content_range)
             self.end_headers()
+            self._response_started = True
 
         def send_cached(self, start: int, end: int, head_only: bool) -> None:
             total = stream.length if stream.length is not None else "*"
@@ -367,6 +376,10 @@ def self_test() -> None:
         cache.write_at(0, b"hello")
         assert cache.contains(0, 9)
         assert cache.intervals == [(0, 9)]
+        handler = object.__new__(make_handler(ResolvedStream("https://example.com/video", "direct"), cache, True))
+        handler._response_started = True
+        handler.send_error = lambda *_: (_ for _ in ()).throw(AssertionError("sent a second response"))
+        handler.proxy_error(502, "connection reset")
         assert b"unpkg.com/video.js@8.23.9" in BROWSER_PAGE
         assert b'<source src="/video">' in BROWSER_PAGE
         cache.close()
