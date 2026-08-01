@@ -1,70 +1,76 @@
 <h1 align="center">StreamingCLI</h1>
 
 <p align="center">
-  <em>Paste link. Your video player opens. Temporary cache disappears when you are done.</em>
+  <em>Paste a link. Watch in your video player or browser. Temporary cache disappears when you are done.</em>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9%2B-111111?style=flat-square&logo=python&logoColor=white" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/node-%3E%3D16-111111?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node >=16">
-  <img src="https://img.shields.io/badge/player-auto--detect-111111?style=flat-square" alt="Auto-detect player">
+  <img src="https://img.shields.io/badge/playback-player%20%7C%20browser-111111?style=flat-square" alt="Video player or browser">
   <img src="https://img.shields.io/badge/providers-acefile%20%7C%20direct%20%7C%20filedon%20%7C%20pixeldrain%20%7C%20krakenfiles-111111?style=flat-square" alt="Supported providers">
 </p>
 
 <p align="center">
-  <strong>Link-to-player streaming with byte-range proxy, temporary cache, and automatic cleanup.</strong>
+  <strong>Link streaming with a byte-range proxy, temporary cache, and automatic cleanup.</strong>
 </p>
 
 ---
 
-StreamingCLI memutar video dari link hosting langsung ke video player tanpa download manual. Tool ini resolve link provider, membuka proxy lokal di `127.0.0.1`, lalu player membaca video dari proxy tersebut dengan dukungan seek lewat HTTP Range.
+StreamingCLI resolves supported hosting links and exposes the video through a local proxy at `127.0.0.1`. You can watch through an installed video player or an automatically opened browser page, with seeking supported through HTTP byte ranges.
 
-StreamingCLI mendeteksi IINA, mpv, VLC, atau ffplay jika tersedia. Player lain bisa dipilih lewat `--player`; jika tidak ada yang terdeteksi, aplikasi bawaan OS akan dipakai.
+For local playback, StreamingCLI detects IINA, mpv, VLC, or ffplay when available. Any other player can be selected with `--player`; otherwise, the operating system default is used.
 
 ## Preview
 
 ```text
 +----------------------------------------------------------+
 |                    StreamingCLI                          |
-|     Link-to-player streaming with temporary cache         |
+|     Stream in your video player or browser               |
 +----------------------------------------------------------+
 
 1. Start Streaming
-   Paste link video, lalu buka di video player
+   Paste a video link and choose where to watch
 
 2. List Providers
-   Lihat sumber link yang saat ini didukung
+   Show currently supported link providers
 
 3. Exit
-   Keluar dari StreamingCLI
+   Close StreamingCLI
+
+Playback Mode
+1. Video Player
+2. Browser
+3. Back
 ```
 
-## Fitur
+## Features
 
-- Stream link video ke video player tanpa menyimpan file permanen.
-- Seek maju/mundur untuk provider yang mendukung byte range.
-- Cache sementara per sesi, dibersihkan saat sesi berakhir.
-- Auto-detect player dan dukungan path player custom.
-- Bisa dipakai sebagai CLI Python atau menu Node.js.
-- Minim dependency: hanya butuh Python, Node.js, dan video player.
+- Stream hosted videos without saving a permanent copy.
+- Watch in a local video player or browser.
+- Seek forward and backward when the provider supports byte ranges.
+- Use a temporary per-session cache that is removed when the session ends.
+- Auto-detect common players or use a custom player path.
+- Run through either the Node.js menu or the Python CLI.
+- No third-party runtime dependencies.
 
 ## Install
 
-### Dari GitHub macOS/Linux
+### From GitHub on macOS/Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/didanrm/streamingcli/main/install.sh | sh
 ```
 
-Lalu jalankan:
+Then run:
 
 ```bash
 streamingcli
 ```
 
-### Dari GitHub Windows
+### From GitHub on Windows
 
-Install Git, Node.js, Python, dan video player pilihanmu dulu. Kalau pakai PowerShell:
+Install Git, Node.js, Python, and your preferred video player first. In PowerShell:
 
 ```powershell
 winget install Git.Git OpenJS.NodeJS Python.Python.3.12
@@ -72,96 +78,105 @@ npm install -g github:didanrm/streamingcli#main
 setx STREAMINGCLI_PYTHON python
 ```
 
-Tutup PowerShell, buka lagi, lalu jalankan:
+Close PowerShell, open it again, then run:
 
 ```powershell
 streamingcli
 ```
 
-### Dari folder project
+### From the project folder
 
 ```bash
 npm install -g .
 streamingcli
 ```
 
-## Cara Pakai
+## Usage
 
-Mode menu:
+Open the interactive menu:
 
 ```bash
 streamingcli
 ```
 
-Langsung dari URL:
+Open a URL in an automatically detected video player:
 
 ```bash
 streamingcli "https://pixeldrain.com/u/FILE_ID"
 streamingcli "https://acefile.co/f/FILE_ID/file-name-mkv"
 ```
 
-Pilih player tertentu:
+Open a URL in the browser:
+
+```bash
+streamingcli --browser "https://pixeldrain.com/u/FILE_ID"
+```
+
+Choose a specific player:
 
 ```bash
 streamingcli --player mpv "https://pixeldrain.com/u/FILE_ID"
 streamingcli --player "QuickTime Player" "https://example.com/video.mp4"
 ```
 
-Atau via Python:
+Run through Python:
 
 ```bash
-python3 stream.py "https://example.com/video.mp4"
+python3 stream.py --browser "https://example.com/video.mp4"
 ```
 
-Lihat provider:
+List providers:
 
 ```bash
 streamingcli --list-providers
 ```
 
-Update dari branch `main` GitHub:
+Update from the GitHub `main` branch:
 
 ```bash
 streamingcli --update
 ```
 
-## Opsi
+## Options
 
-| Opsi | Fungsi |
+| Option | Purpose |
 |---|---|
-| `--player <command/path>` | Pakai video player tertentu |
-| `--keep-cache` | Simpan cache setelah selesai untuk debug |
-| `--port <number>` | Pakai port lokal tertentu |
-| `--quiet` | Sembunyikan log proxy |
-| `--list-providers` | Tampilkan provider yang didukung |
-| `--update` | Install ulang versi terbaru dari GitHub `main` |
+| `--browser` | Print a local watch link and open it in the browser |
+| `--player <command/path>` | Use a specific video player |
+| `--keep-cache` | Keep the temporary cache for debugging |
+| `--port <number>` | Use a specific local proxy port |
+| `--quiet` | Hide proxy request logs |
+| `--list-providers` | Show supported providers |
+| `--update` | Reinstall the latest version from GitHub `main` |
 
-## Cara Kerja
+## How It Works
 
 ```text
 URL
- │
- ▼
+ |
+ v
 Provider resolver
- │
- ▼
+ |
+ v
 Direct stream URL
- │
- ▼
-Local HTTP proxy 127.0.0.1
- │
- ▼
-Video player
+ |
+ v
+Local HTTP proxy at 127.0.0.1
+ |
+ +--> Video player
+ |
+ +--> Browser page
 ```
 
-Saat player meminta byte tertentu, StreamingCLI mengambil range yang sama dari provider, mengirimkannya ke player, dan menyimpan chunk itu ke cache sementara. Kalau bagian yang sama diminta lagi, data dikirim dari cache lokal.
+When playback requests a byte range, StreamingCLI fetches the same range from the provider, forwards it, and saves the chunk in the temporary cache. Repeated requests for cached bytes are served locally.
 
 ## Requirements
 
 - Python 3.9+
 - Node.js 16+
-- Video player yang menerima URL HTTP dan mendukung format videonya
-- macOS, Windows, atau Linux
+- macOS, Windows, or Linux
+- A compatible video player for local-player mode
+- A browser-supported container and codec for browser mode
 
 ## Development
 
@@ -169,10 +184,10 @@ Saat player meminta byte tertentu, StreamingCLI mengambil range yang sama dari p
 npm test
 ```
 
-Test menjalankan self-check Python dan memastikan daftar provider bisa dibaca dari CLI Node.js.
+The test command runs the Python self-check and verifies that the provider list is available through the Node.js CLI.
 
-## Catatan
+## Notes
 
-StreamingCLI hanya alat teknis untuk memutar link yang sudah kamu miliki aksesnya. Link private, captcha, quota limit, DRM, atau file yang sudah dihapus tetap bisa gagal karena pembatasan dari provider.
+StreamingCLI is a technical tool for playing links you already have permission to access. Private links, captchas, quotas, DRM, removed files, and provider restrictions can still prevent playback.
 
-File statis dari provider tidak memiliki adaptive bitrate seperti YouTube. Kelancaran tetap dipengaruhi kecepatan provider, koneksi pengguna, format/codec, dan kemampuan buffer player. QuickTime mendukung MP4 tetapi tidak mendukung MKV secara native; gunakan IINA, mpv, VLC, atau player kompatibel untuk MKV.
+Static provider files do not offer adaptive bitrate like YouTube. Playback quality still depends on provider speed, network quality, the file codec, and player buffering. Browsers and QuickTime do not natively support every MKV file; use IINA, mpv, VLC, or another compatible player when needed.
