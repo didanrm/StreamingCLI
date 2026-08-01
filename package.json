@@ -1,7 +1,7 @@
 {
   "name": "streamingcli",
-  "version": "0.1.0",
-  "description": "Node CLI menu for a Python-powered video streamer.",
+  "version": "0.2.0",
+  "description": "Stream hosted videos to your preferred local video player.",
   "bin": {
     "streamingcli": "./bin/streamingcli.js"
   },

@@ -22,7 +22,7 @@ import providers
 from providers import ResolvedStream, StreamError, header_int, http_request, resolve
 
 
-CHUNK_SIZE = 256 * 1024
+CHUNK_SIZE = 1024 * 1024
 
 
 class RangeCache:
@@ -30,7 +30,7 @@ class RangeCache:
         self.path = path
         self.intervals: list[tuple[int, int]] = []
         self.lock = threading.Lock()
-        self.path.touch()
+        self.file = self.path.open("w+b")
 
     def contains(self, start: int, end: int) -> bool:
         with self.lock:
@@ -55,10 +55,13 @@ class RangeCache:
 
     def write_at(self, offset: int, data: bytes) -> None:
         with self.lock:
-            with self.path.open("r+b") as f:
-                f.seek(offset)
-                f.write(data)
+            self.file.seek(offset)
+            self.file.write(data)
+            self.file.flush()
         self.add(offset, offset + len(data) - 1)
+
+    def close(self) -> None:
+        self.file.close()
 
     def send(self, wfile, start: int, end: int) -> None:
         remaining = end - start + 1
@@ -95,7 +98,7 @@ def parse_range(value: Optional[str], length: Optional[int]) -> Optional[tuple[i
 
 def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
     class ProxyHandler(BaseHTTPRequestHandler):
-        server_version = "StreamCLI/0.1"
+        server_version = "StreamingCLI/0.2"
 
         def log_message(self, fmt, *args):
             if not quiet:
@@ -112,6 +115,14 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
                 self.send_error(404)
                 return
             requested = parse_range(self.headers.get("Range"), stream.length)
+            if head_only:
+                if requested and stream.supports_range:
+                    start, end = requested
+                    total = stream.length if stream.length is not None else "*"
+                    self.common_headers(206, end - start + 1, f"bytes {start}-{end}/{total}")
+                else:
+                    self.common_headers(200, stream.length)
+                return
             if requested and cache.contains(*requested):
                 self.send_cached(*requested, head_only=head_only)
                 return
@@ -180,23 +191,43 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
     return ProxyHandler
 
 
-def find_vlc(custom_path: Optional[str]) -> str:
-    candidates: list[str] = []
+def find_player(custom_path: Optional[str], content_type: str, url: str) -> tuple[list[str], str, bool]:
+    custom_path = custom_path or os.environ.get("STREAMINGCLI_PLAYER")
     if custom_path:
-        candidates.append(custom_path)
+        if sys.platform == "darwin" and (custom_path.endswith(".app") or Path(f"/Applications/{custom_path}.app").exists() or Path(f"/System/Applications/{custom_path}.app").exists()):
+            return ["open", "-W", "-a", custom_path, url], Path(custom_path).stem, True
+        executable = str(Path(custom_path).expanduser()) if Path(custom_path).expanduser().exists() else shutil.which(custom_path)
+        if not executable:
+            raise StreamError(f"Video player tidak ditemukan: {custom_path}")
+        return [executable, url], Path(executable).stem, True
+
+    candidates = [shutil.which("mpv"), shutil.which("vlc"), shutil.which("ffplay")]
     if sys.platform == "darwin":
-        candidates += ["/Applications/VLC.app/Contents/MacOS/VLC"]
+        candidates = [
+            "/Applications/IINA.app/Contents/MacOS/iina-cli",
+            *candidates,
+            "/Applications/VLC.app/Contents/MacOS/VLC",
+        ]
+        if "matroska" not in content_type:
+            candidates.append("/System/Applications/QuickTime Player.app/Contents/MacOS/QuickTime Player")
     if sys.platform.startswith("win"):
         for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
             if root:
                 candidates.append(str(Path(root) / "VideoLAN" / "VLC" / "vlc.exe"))
-    path_vlc = shutil.which("vlc")
-    if path_vlc:
-        candidates.append(path_vlc)
     for path in candidates:
         if path and Path(path).exists():
-            return path
-    raise StreamError("VLC tidak ditemukan. Install VLC atau pakai --vlc-path /path/to/vlc.")
+            if "QuickTime Player" in path:
+                return ["open", "-W", "-a", "QuickTime Player", url], "QuickTime Player", True
+            return [path, url], Path(path).stem, True
+
+    if sys.platform == "darwin":
+        return ["open", "-W", url], "default macOS app", True
+    if sys.platform.startswith("win"):
+        return ["cmd", "/c", "start", "", url], "default Windows app", False
+    opener = shutil.which("xdg-open")
+    if opener:
+        return [opener, url], "default system app", False
+    raise StreamError("Video player tidak ditemukan. Pakai --player /path/to/player.")
 
 
 def start_server(stream: ResolvedStream, cache: RangeCache, port: Optional[int], quiet: bool):
@@ -219,11 +250,14 @@ def run(args) -> int:
 
     temp_dir = Path(tempfile.mkdtemp(prefix="streamcli_"))
     server = None
+    cache = None
 
     def cleanup():
         if server:
             server.shutdown()
             server.server_close()
+        if cache:
+            cache.close()
         if not args.keep_cache:
             shutil.rmtree(temp_dir, ignore_errors=True)
         elif not args.quiet:
@@ -234,16 +268,20 @@ def run(args) -> int:
 
     cache = RangeCache(temp_dir / "video.cache")
     server, local_url = start_server(stream, cache, args.port, args.quiet)
-    vlc_path = find_vlc(args.vlc_path)
+    command, player_name, wait_for_player = find_player(args.player or args.vlc_path, stream.content_type, local_url)
     if not args.quiet:
-        print(f"[streamcli] opening VLC: {local_url}")
-    vlc = subprocess.Popen([vlc_path, local_url])
+        print(f"[streamcli] opening {player_name}: {local_url}")
+        if not wait_for_player:
+            print("[streamcli] tekan Ctrl+C setelah selesai menonton")
+    player = subprocess.Popen(command)
     try:
-        while vlc.poll() is None:
+        while not wait_for_player or player.poll() is None:
             time.sleep(0.5)
     except KeyboardInterrupt:
-        vlc.terminate()
-    return vlc.returncode or 0
+        if player.poll() is None:
+            player.terminate()
+        return 0
+    return player.returncode or 0
 
 
 def self_test() -> None:
@@ -256,14 +294,16 @@ def self_test() -> None:
         cache.write_at(0, b"hello")
         assert cache.contains(0, 9)
         assert cache.intervals == [(0, 9)]
+        cache.close()
     providers.self_test()
     print("self-test ok")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Stream a direct/Pixeldrain video URL through VLC.")
+    parser = argparse.ArgumentParser(description="Stream a video URL through your preferred video player.")
     parser.add_argument("url", nargs="?")
-    parser.add_argument("--vlc-path")
+    parser.add_argument("--player", help="video player command or executable path")
+    parser.add_argument("--vlc-path", help=argparse.SUPPRESS)
     parser.add_argument("--keep-cache", action="store_true")
     parser.add_argument("--port", type=int)
     parser.add_argument("--quiet", action="store_true")

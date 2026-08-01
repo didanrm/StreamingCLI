@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import base64
 import html.parser
 import http.cookiejar
 import json
@@ -11,8 +13,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-USER_AGENT = "StreamCLI/0.1"
-SUPPORTED_PROVIDERS = ("direct", "filedon", "krakenfiles", "pixeldrain")
+USER_AGENT = "StreamingCLI/0.2"
+SUPPORTED_PROVIDERS = ("acefile", "direct", "filedon", "krakenfiles", "pixeldrain")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
 
@@ -82,21 +84,84 @@ def resolve_pixeldrain(url: str) -> ResolvedStream:
         raise StreamError("Pixeldrain URL tidak berisi file id.")
     file_id = match.group(1)
     direct_url = f"https://pixeldrain.com/api/file/{file_id}"
-    length, content_type, supports_range = probe(direct_url)
+    length, content_type, supports_range = None, "application/octet-stream", True
 
     try:
         with http_request(f"https://pixeldrain.com/api/file/{file_id}/info") as response:
             info = json.loads(response.read().decode())
             if not info.get("success", True):
                 raise StreamError(info.get("message", "Pixeldrain menolak file ini."))
-            length = info.get("size") or length
+            if info.get("can_download") is False:
+                raise StreamError(info.get("availability_message") or "File Pixeldrain tidak bisa diunduh.")
+            length = info.get("size")
             content_type = info.get("mime_type") or content_type
     except StreamError:
         raise
     except Exception:
-        pass
+        length, content_type, supports_range = probe(direct_url)
 
     return ResolvedStream(direct_url, "pixeldrain", length=length, content_type=content_type, supports_range=supports_range)
+
+
+def unpack_packer(source: str) -> str:
+    match = re.search(
+        r"eval\(function\(p,a,c,k,e,d\).*?\}\('((?:\\.|[^'])*)',(\d+),\d+,'((?:\\.|[^'])*)'\.split\('\|'\),0,\{\}\)\)",
+        source,
+        re.S,
+    )
+    if not match:
+        raise StreamError("Tidak menemukan konfigurasi player Acefile.")
+    payload = ast.literal_eval(f"'{match.group(1)}'")
+    radix = int(match.group(2))
+    symbols = ast.literal_eval(f"'{match.group(3)}'").split("|")
+    digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if radix > len(digits):
+        raise StreamError("Format player Acefile belum didukung.")
+
+    def encoded(number: int) -> str:
+        result = ""
+        while number:
+            number, remainder = divmod(number, radix)
+            result = digits[remainder] + result
+        return result or "0"
+
+    replacements = {encoded(i): value for i, value in enumerate(symbols) if value}
+    return re.sub(r"\b\w+\b", lambda found: replacements.get(found.group(0), found.group(0)), payload)
+
+
+def resolve_acefile(url: str) -> ResolvedStream:
+    match = re.search(r"acefile\.co/(?:f|player)/(\d+)", url)
+    if not match:
+        raise StreamError("Acefile URL tidak berisi file id.")
+    file_id = match.group(1)
+    player_url = f"https://acefile.co/player/{file_id}"
+
+    with http_request(player_url, {"Referer": url}) as response:
+        player_page = response.read().decode(errors="ignore")
+    unpacked = unpack_packer(player_page)
+    key_match = re.search(r'var nfck="([^"]+)"', unpacked)
+    mirrors_match = re.search(r"var DUAR=(\[.*?\]);", unpacked)
+    if not key_match or not mirrors_match:
+        raise StreamError("Tidak menemukan mirror Acefile.")
+    mirrors = json.loads(mirrors_match.group(1))
+    if not mirrors or not mirrors[0].get("id"):
+        raise StreamError("Mirror Acefile tidak tersedia.")
+
+    mirror_url = f"https://acefile.co/local/{mirrors[0]['id']}?key={key_match.group(1)}"
+    with http_request(mirror_url, {"Referer": player_url}) as response:
+        mirror_page = response.read().decode(errors="ignore")
+    sources_match = re.search(r'sources:\s*JSON\.parse\(atob\("([^"]+)"\)\)', mirror_page)
+    if not sources_match:
+        raise StreamError("Acefile meminta login atau mirror tidak tersedia.")
+    sources = json.loads(base64.b64decode(sources_match.group(1)))
+    source = next((item.get("file") for item in sources if item.get("file")), None)
+    if not source:
+        raise StreamError("Tidak menemukan URL video Acefile.")
+
+    direct_url = urllib.parse.urljoin(mirror_url, source)
+    headers = {"Referer": mirror_url}
+    length, content_type, supports_range = probe(direct_url, headers)
+    return ResolvedStream(direct_url, "acefile", headers=headers, length=length, content_type=content_type, supports_range=supports_range)
 
 
 class DownloadLinkParser(html.parser.HTMLParser):
@@ -197,6 +262,8 @@ def resolve_direct(url: str) -> ResolvedStream:
 
 def resolve(url: str) -> ResolvedStream:
     host = urllib.parse.urlparse(url).netloc.lower()
+    if "acefile.co" in host:
+        return resolve_acefile(url)
     if "pixeldrain.com" in host:
         return resolve_pixeldrain(url)
     if "filedon.co" in host:
@@ -214,6 +281,8 @@ def self_test() -> None:
     assert parser.media == ["/play/video/abc"]
     page = '<div data-page="{&quot;props&quot;:{&quot;files&quot;:{&quot;size&quot;:9,&quot;mime_type&quot;:&quot;video/mp4&quot;},&quot;flash&quot;:{&quot;_token&quot;:&quot;t&quot;},&quot;sharing_meta&quot;:{&quot;allow_download&quot;:true}},&quot;version&quot;:&quot;v&quot;}"></div>'
     assert json.loads(html.unescape(re.search(r'data-page="([^"]+)"', page).group(1)))["version"] == "v"
+    packed = "eval(function(p,a,c,k,e,d){}('0 1=\"2\";0 3=[{\"4\":\"5\"}];',6,6,'var|nfck|token|DUAR|id|42'.split('|'),0,{}))"
+    assert unpack_packer(packed) == 'var nfck="token";var DUAR=[{"id":"42"}];'
     old_http_request, old_probe = globals()["http_request"], globals()["probe"]
 
     class FakeResponse:
@@ -248,5 +317,18 @@ def self_test() -> None:
         assert stream.provider == "filedon"
         assert stream.length == 9
         assert stream.content_type == "video/mp4"
+
+        encoded_sources = base64.b64encode(b'[{"file":"/service/play/x","type":"mp4"}]').decode()
+
+        def fake_acefile_request(url, *_args, **_kwargs):
+            if "/player/" in url:
+                return FakeResponse(packed.encode())
+            return FakeResponse(f'sources: JSON.parse(atob("{encoded_sources}"))'.encode())
+
+        globals()["http_request"] = fake_acefile_request
+        stream = resolve_acefile("https://acefile.co/f/1/example-mkv")
+        assert stream.url == "https://acefile.co/service/play/x"
+        assert stream.provider == "acefile"
+        assert stream.supports_range
     finally:
         globals()["http_request"], globals()["probe"] = old_http_request, old_probe

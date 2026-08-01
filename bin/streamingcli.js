@@ -26,7 +26,7 @@ const menuItems = [
   {
     key: "1",
     title: "Start Streaming",
-    description: "Paste link video, lalu buka langsung di VLC",
+    description: "Paste link video, lalu buka di video player",
   },
   {
     key: "2",
@@ -126,7 +126,7 @@ function banner() {
   boxed(
     [
       ...titleLines.map((item) => center(`${c.cyan}${c.bold}${item}${c.reset}`, inner)),
-      center(`${c.dim}Link-to-VLC streamer with temporary cache${c.reset}`, inner),
+      center(`${c.dim}Link-to-player streaming with temporary cache${c.reset}`, inner),
     ],
     width,
   );
@@ -263,7 +263,7 @@ async function prettyMenu() {
       banner();
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       console.log(`${c.bold}Start Streaming${c.reset}`);
-      console.log(`${c.dim}Paste link dari provider yang didukung. VLC akan dibuka otomatis.${c.reset}\n`);
+      console.log(`${c.dim}Paste link dari provider yang didukung. Video player akan dibuka otomatis.${c.reset}\n`);
       const url = (await ask(rl, promptLabel("Masukkan URL:"))).trim();
       rl.close();
       if (!url) {
