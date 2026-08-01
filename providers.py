@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-USER_AGENT = "StreamingCLI/0.2"
+USER_AGENT = "StreamingCLI/0.3"
 SUPPORTED_PROVIDERS = ("acefile", "direct", "filedon", "krakenfiles", "pixeldrain")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
@@ -81,7 +81,7 @@ def probe(url: str, headers: Optional[dict[str, str]] = None) -> tuple[Optional[
 def resolve_pixeldrain(url: str) -> ResolvedStream:
     match = re.search(r"pixeldrain\.com/(?:u|file)/([^/?#]+)", url)
     if not match:
-        raise StreamError("Pixeldrain URL tidak berisi file id.")
+        raise StreamError("Pixeldrain URL does not contain a file ID.")
     file_id = match.group(1)
     direct_url = f"https://pixeldrain.com/api/file/{file_id}"
     length, content_type, supports_range = None, "application/octet-stream", True
@@ -90,9 +90,9 @@ def resolve_pixeldrain(url: str) -> ResolvedStream:
         with http_request(f"https://pixeldrain.com/api/file/{file_id}/info") as response:
             info = json.loads(response.read().decode())
             if not info.get("success", True):
-                raise StreamError(info.get("message", "Pixeldrain menolak file ini."))
+                raise StreamError(info.get("message", "Pixeldrain rejected this file."))
             if info.get("can_download") is False:
-                raise StreamError(info.get("availability_message") or "File Pixeldrain tidak bisa diunduh.")
+                raise StreamError(info.get("availability_message") or "This Pixeldrain file cannot be downloaded.")
             length = info.get("size")
             content_type = info.get("mime_type") or content_type
     except StreamError:
@@ -110,13 +110,13 @@ def unpack_packer(source: str) -> str:
         re.S,
     )
     if not match:
-        raise StreamError("Tidak menemukan konfigurasi player Acefile.")
+        raise StreamError("Acefile player configuration not found.")
     payload = ast.literal_eval(f"'{match.group(1)}'")
     radix = int(match.group(2))
     symbols = ast.literal_eval(f"'{match.group(3)}'").split("|")
     digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     if radix > len(digits):
-        raise StreamError("Format player Acefile belum didukung.")
+        raise StreamError("This Acefile player format is not supported.")
 
     def encoded(number: int) -> str:
         result = ""
@@ -132,7 +132,7 @@ def unpack_packer(source: str) -> str:
 def resolve_acefile(url: str) -> ResolvedStream:
     match = re.search(r"acefile\.co/(?:f|player)/(\d+)", url)
     if not match:
-        raise StreamError("Acefile URL tidak berisi file id.")
+        raise StreamError("Acefile URL does not contain a file ID.")
     file_id = match.group(1)
     player_url = f"https://acefile.co/player/{file_id}"
 
@@ -142,21 +142,21 @@ def resolve_acefile(url: str) -> ResolvedStream:
     key_match = re.search(r'var nfck="([^"]+)"', unpacked)
     mirrors_match = re.search(r"var DUAR=(\[.*?\]);", unpacked)
     if not key_match or not mirrors_match:
-        raise StreamError("Tidak menemukan mirror Acefile.")
+        raise StreamError("Acefile mirror not found.")
     mirrors = json.loads(mirrors_match.group(1))
     if not mirrors or not mirrors[0].get("id"):
-        raise StreamError("Mirror Acefile tidak tersedia.")
+        raise StreamError("No Acefile mirror is available.")
 
     mirror_url = f"https://acefile.co/local/{mirrors[0]['id']}?key={key_match.group(1)}"
     with http_request(mirror_url, {"Referer": player_url}) as response:
         mirror_page = response.read().decode(errors="ignore")
     sources_match = re.search(r'sources:\s*JSON\.parse\(atob\("([^"]+)"\)\)', mirror_page)
     if not sources_match:
-        raise StreamError("Acefile meminta login atau mirror tidak tersedia.")
+        raise StreamError("Acefile requires login or no mirror is available.")
     sources = json.loads(base64.b64decode(sources_match.group(1)))
     source = next((item.get("file") for item in sources if item.get("file")), None)
     if not source:
-        raise StreamError("Tidak menemukan URL video Acefile.")
+        raise StreamError("Acefile video URL not found.")
 
     direct_url = urllib.parse.urljoin(mirror_url, source)
     headers = {"Referer": mirror_url}
@@ -200,14 +200,14 @@ def resolve_krakenfiles(url: str) -> ResolvedStream:
             return ResolvedStream(candidate, "krakenfiles", headers=headers, length=length, content_type=content_type, supports_range=supports_range)
 
     if re.search(r"captcha|cf-turnstile|login|private|not found|file removed", html, re.I):
-        raise StreamError("KrakenFiles link butuh captcha/login atau file tidak tersedia.")
-    raise StreamError("Tidak menemukan direct download KrakenFiles di halaman ini.")
+        raise StreamError("The KrakenFiles link requires a captcha/login or the file is unavailable.")
+    raise StreamError("No direct KrakenFiles download was found on this page.")
 
 
 def resolve_filedon(url: str) -> ResolvedStream:
     match = re.search(r"filedon\.co/(?:view|embed)/([^/?#]+)", url)
     if not match:
-        raise StreamError("FileDon URL tidak berisi file slug.")
+        raise StreamError("FileDon URL does not contain a file slug.")
     slug = match.group(1)
     page_url = f"https://filedon.co/view/{slug}"
 
@@ -215,13 +215,13 @@ def resolve_filedon(url: str) -> ResolvedStream:
         page = response.read().decode(errors="ignore")
     page_match = re.search(r'data-page="([^"]+)"', page)
     if not page_match:
-        raise StreamError("Tidak menemukan data FileDon di halaman ini.")
+        raise StreamError("FileDon data was not found on this page.")
 
     data = json.loads(html.unescape(page_match.group(1)))
     props = data.get("props", {})
     sharing = props.get("sharing_meta", {})
     if sharing.get("is_expired") or sharing.get("limit_reached") or sharing.get("allow_download") is False:
-        raise StreamError("FileDon link expired, limit tercapai, atau download dimatikan.")
+        raise StreamError("The FileDon link expired, reached its limit, or has downloads disabled.")
 
     csrf = props.get("flash", {}).get("_token")
     if not csrf:
@@ -242,7 +242,7 @@ def resolve_filedon(url: str) -> ResolvedStream:
 
     direct_url = download_data.get("props", {}).get("flash", {}).get("download_url")
     if not direct_url:
-        raise StreamError("FileDon tidak mengirim direct download URL.")
+        raise StreamError("FileDon did not return a direct download URL.")
 
     file_info = props.get("files", {})
     found_length, found_type, supports_range = probe(direct_url)

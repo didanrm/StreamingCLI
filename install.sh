@@ -8,7 +8,7 @@ TMP="${TMPDIR:-/tmp}/streamingcli-install-$$"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "streamingcli: '$1' belum terinstall." >&2
+    echo "streamingcli: '$1' is not installed." >&2
     exit 1
   }
 }
