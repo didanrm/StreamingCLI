@@ -48,6 +48,7 @@ Playback Mode
 
 - Stream hosted videos without saving a permanent copy.
 - Watch in a local video player or browser.
+- Get consistent browser controls through Video.js with native HTML5 fallback.
 - Seek forward and backward when the provider supports byte ranges.
 - Use a temporary per-session cache that is removed when the session ends.
 - Auto-detect common players or use a custom player path.
@@ -189,5 +190,7 @@ The test command runs the Python self-check and verifies that the provider list 
 ## Notes
 
 StreamingCLI is a technical tool for playing links you already have permission to access. Private links, captchas, quotas, DRM, removed files, and provider restrictions can still prevent playback.
+
+Browser mode uses the stable Video.js 8 player and falls back to native HTML5 video if its CDN is unavailable. It supports current Chrome, Edge, Firefox, and Safari releases, but the browser must still support the file's container and codecs.
 
 Static provider files do not offer adaptive bitrate like YouTube. Playback quality still depends on provider speed, network quality, the file codec, and player buffering. Browsers and QuickTime do not natively support every MKV file; use IINA, mpv, VLC, or another compatible player when needed.

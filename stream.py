@@ -30,12 +30,50 @@ BROWSER_PAGE = b"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>StreamingCLI</title>
+<link href="https://unpkg.com/video.js@8.23.9/dist/video-js.min.css" rel="stylesheet">
 <style>
-html,body{width:100%;height:100%;margin:0;background:#0b0b0c;color:#f5f5f5;font-family:system-ui,sans-serif}
-body{display:grid;place-items:center}video{width:100%;height:100%;object-fit:contain;background:#000}
+*{box-sizing:border-box}html,body,main{width:100%;height:100%;margin:0}
+body{overflow:hidden;background:#08090a;color:#f5f7f8;font-family:Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
+.player-shell{position:relative;width:100%;height:100%;background:#000}
+.video-js,.native-player{width:100%;height:100%;font-family:inherit}.video-js .vjs-tech,.native-player{object-fit:contain}
+.brand{position:absolute;z-index:2;top:18px;left:20px;display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;pointer-events:none;text-shadow:0 1px 4px #000}
+.brand-mark{width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 0 4px rgb(52 211 153/.18)}
+.playback-error{position:absolute;z-index:3;left:50%;top:20px;translate:-50% 0;max-width:min(90vw,620px);padding:10px 14px;border:1px solid #713b42;border-radius:6px;background:#241316;color:#fecdd3;font-size:13px;text-align:center}
+.video-js .vjs-control-bar{height:4rem;padding:0 10px;background:rgb(8 9 10/.92);align-items:center}
+.video-js .vjs-progress-control{position:absolute;left:12px;right:12px;top:-13px;width:auto;height:20px}
+.video-js .vjs-progress-holder{height:4px;margin:0}.video-js .vjs-progress-control:hover .vjs-progress-holder{font-size:1em;height:6px}
+.video-js .vjs-play-progress,.video-js .vjs-volume-level{background:#34d399}.video-js .vjs-play-progress:before{color:#34d399}
+.video-js .vjs-big-play-button{top:50%;left:50%;width:68px;height:68px;margin:-34px 0 0 -34px;border:1px solid rgb(255 255 255/.5);border-radius:50%;background:rgb(8 9 10/.78);line-height:66px}
+.video-js:hover .vjs-big-play-button,.video-js .vjs-big-play-button:focus{border-color:#34d399;background:#111816}
+.video-js .vjs-control:focus-visible{outline:2px solid #34d399;outline-offset:-3px}
+@media(max-width:640px){.brand{top:12px;left:14px}.video-js .vjs-control-bar{height:3.5rem;padding:0 4px}.video-js .vjs-control{width:3.5em}.video-js .vjs-remaining-time{display:none}}
 </style>
 </head>
-<body><video src="/video" controls autoplay playsinline>Your browser cannot play this video.</video></body>
+<body>
+<main><div class="player-shell">
+<div class="brand"><span class="brand-mark"></span>StreamingCLI</div>
+<div id="playback-error" class="playback-error" role="alert" hidden>This browser cannot decode the video format. Try Video Player mode.</div>
+<video id="streamingcli-player" class="video-js vjs-big-play-centered" controls preload="auto" playsinline>
+<source src="/video">
+<p class="vjs-no-js">JavaScript is disabled. Use a browser with HTML5 video support.</p>
+</video>
+</div></main>
+<script src="https://unpkg.com/video.js@8.23.9/dist/video.min.js"></script>
+<script>
+const media=document.getElementById('streamingcli-player');
+const error=document.getElementById('playback-error');
+if(window.videojs){
+  const player=videojs(media,{autoplay:true,fill:true,playbackRates:[.5,.75,1,1.25,1.5,2],userActions:{hotkeys:true}});
+  player.on('error',()=>{error.hidden=false});
+  player.on('loadstart',()=>{error.hidden=true});
+}else{
+  media.className='native-player';
+  media.autoplay=true;
+  media.src='/video';
+  media.addEventListener('error',()=>{error.hidden=false});
+}
+</script>
+</body>
 </html>"""
 
 
@@ -112,7 +150,7 @@ def parse_range(value: Optional[str], length: Optional[int]) -> Optional[tuple[i
 
 def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
     class ProxyHandler(BaseHTTPRequestHandler):
-        server_version = "StreamingCLI/0.3"
+        server_version = "StreamingCLI/0.4"
 
         def log_message(self, fmt, *args):
             if not quiet:
@@ -329,7 +367,8 @@ def self_test() -> None:
         cache.write_at(0, b"hello")
         assert cache.contains(0, 9)
         assert cache.intervals == [(0, 9)]
-        assert b'<video src="/video"' in BROWSER_PAGE
+        assert b"unpkg.com/video.js@8.23.9" in BROWSER_PAGE
+        assert b'<source src="/video">' in BROWSER_PAGE
         cache.close()
     providers.self_test()
     print("self-test ok")

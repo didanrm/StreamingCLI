@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-USER_AGENT = "StreamingCLI/0.3"
+USER_AGENT = "StreamingCLI/0.4"
 SUPPORTED_PROVIDERS = ("acefile", "direct", "filedon", "krakenfiles", "pixeldrain")
 COOKIE_JAR = http.cookiejar.CookieJar()
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
