@@ -14,6 +14,7 @@ import threading
 import time
 import urllib.error
 import urllib.parse
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,19 @@ from providers import ResolvedStream, StreamError, header_int, http_request, res
 
 
 CHUNK_SIZE = 1024 * 1024
+BROWSER_PAGE = b"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StreamingCLI</title>
+<style>
+html,body{width:100%;height:100%;margin:0;background:#0b0b0c;color:#f5f5f5;font-family:system-ui,sans-serif}
+body{display:grid;place-items:center}video{width:100%;height:100%;object-fit:contain;background:#000}
+</style>
+</head>
+<body><video src="/video" controls autoplay playsinline>Your browser cannot play this video.</video></body>
+</html>"""
 
 
 class RangeCache:
@@ -98,7 +112,7 @@ def parse_range(value: Optional[str], length: Optional[int]) -> Optional[tuple[i
 
 def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
     class ProxyHandler(BaseHTTPRequestHandler):
-        server_version = "StreamingCLI/0.2"
+        server_version = "StreamingCLI/0.3"
 
         def log_message(self, fmt, *args):
             if not quiet:
@@ -111,7 +125,16 @@ def make_handler(stream: ResolvedStream, cache: RangeCache, quiet: bool):
             self.serve(head_only=False)
 
         def serve(self, head_only: bool) -> None:
-            if urllib.parse.urlparse(self.path).path != "/video":
+            path = urllib.parse.urlparse(self.path).path
+            if path == "/":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(BROWSER_PAGE)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(BROWSER_PAGE)
+                return
+            if path != "/video":
                 self.send_error(404)
                 return
             requested = parse_range(self.headers.get("Range"), stream.length)
@@ -198,7 +221,7 @@ def find_player(custom_path: Optional[str], content_type: str, url: str) -> tupl
             return ["open", "-W", "-a", custom_path, url], Path(custom_path).stem, True
         executable = str(Path(custom_path).expanduser()) if Path(custom_path).expanduser().exists() else shutil.which(custom_path)
         if not executable:
-            raise StreamError(f"Video player tidak ditemukan: {custom_path}")
+            raise StreamError(f"Video player not found: {custom_path}")
         return [executable, url], Path(executable).stem, True
 
     candidates = [shutil.which("mpv"), shutil.which("vlc"), shutil.which("ffplay")]
@@ -227,7 +250,7 @@ def find_player(custom_path: Optional[str], content_type: str, url: str) -> tupl
     opener = shutil.which("xdg-open")
     if opener:
         return [opener, url], "default system app", False
-    raise StreamError("Video player tidak ditemukan. Pakai --player /path/to/player.")
+    raise StreamError("Video player not found. Use --player /path/to/player.")
 
 
 def start_server(stream: ResolvedStream, cache: RangeCache, port: Optional[int], quiet: bool):
@@ -268,11 +291,23 @@ def run(args) -> int:
 
     cache = RangeCache(temp_dir / "video.cache")
     server, local_url = start_server(stream, cache, args.port, args.quiet)
+    if args.browser:
+        browser_url = local_url.rsplit("/", 1)[0] + "/"
+        print(f"[streamcli] watch in browser: {browser_url}")
+        if not webbrowser.open(browser_url):
+            print("[streamcli] could not open the browser automatically")
+        print("[streamcli] press Ctrl+C to stop streaming")
+        try:
+            while True:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            return 0
+
     command, player_name, wait_for_player = find_player(args.player or args.vlc_path, stream.content_type, local_url)
     if not args.quiet:
         print(f"[streamcli] opening {player_name}: {local_url}")
         if not wait_for_player:
-            print("[streamcli] tekan Ctrl+C setelah selesai menonton")
+            print("[streamcli] press Ctrl+C when you are done watching")
     player = subprocess.Popen(command)
     try:
         while not wait_for_player or player.poll() is None:
@@ -294,14 +329,16 @@ def self_test() -> None:
         cache.write_at(0, b"hello")
         assert cache.contains(0, 9)
         assert cache.intervals == [(0, 9)]
+        assert b'<video src="/video"' in BROWSER_PAGE
         cache.close()
     providers.self_test()
     print("self-test ok")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Stream a video URL through your preferred video player.")
+    parser = argparse.ArgumentParser(description="Stream a video URL in your preferred video player or browser.")
     parser.add_argument("url", nargs="?")
+    parser.add_argument("--browser", action="store_true", help="open the stream in your web browser")
     parser.add_argument("--player", help="video player command or executable path")
     parser.add_argument("--vlc-path", help=argparse.SUPPRESS)
     parser.add_argument("--keep-cache", action="store_true")

@@ -26,24 +26,24 @@ const menuItems = [
   {
     key: "1",
     title: "Start Streaming",
-    description: "Paste link video, lalu buka di video player",
+    description: "Paste a video link and choose where to watch",
   },
   {
     key: "2",
     title: "List Providers",
-    description: "Lihat sumber link yang saat ini didukung",
+    description: "Show currently supported link providers",
   },
   {
     key: "3",
     title: "Exit",
-    description: "Keluar dari StreamingCLI",
+    description: "Close StreamingCLI",
   },
 ];
 
 function runPython(args) {
   const result = spawnSync(python, [streamPy, ...args], { stdio: "inherit" });
   if (result.error) {
-    console.error(`streamingcli: gagal menjalankan ${python}: ${result.error.message}`);
+    console.error(`streamingcli: failed to run ${python}: ${result.error.message}`);
     return 1;
   }
   return result.status ?? 1;
@@ -53,7 +53,7 @@ function update() {
   console.log("streamingcli: updating from GitHub main...");
   const result = spawnSync(npm, ["install", "-g", "github:didanrm/streamingcli#main"], { stdio: "inherit" });
   if (result.error) {
-    console.error(`streamingcli: gagal menjalankan ${npm}: ${result.error.message}`);
+    console.error(`streamingcli: failed to run ${npm}: ${result.error.message}`);
     return 1;
   }
   return result.status ?? 1;
@@ -126,7 +126,7 @@ function banner() {
   boxed(
     [
       ...titleLines.map((item) => center(`${c.cyan}${c.bold}${item}${c.reset}`, inner)),
-      center(`${c.dim}Link-to-player streaming with temporary cache${c.reset}`, inner),
+      center(`${c.dim}Stream in your video player or browser${c.reset}`, inner),
     ],
     width,
   );
@@ -144,6 +144,20 @@ function promptLabel(text) {
   return `${c.cyan}${c.bold}${text}${c.reset} `;
 }
 
+async function askStream(rl) {
+  console.log(`\n${c.bold}Playback Mode${c.reset}`);
+  console.log(`${c.bold}1. Video Player${c.reset}\n   ${c.dim}Open in an installed video player${c.reset}`);
+  console.log(`${c.bold}2. Browser${c.reset}\n   ${c.dim}Print a watch link and open your browser${c.reset}`);
+  console.log(`${c.bold}3. Back${c.reset}\n   ${c.dim}Return to the main menu${c.reset}`);
+
+  const mode = (await ask(rl, `\n${promptLabel("Select playback mode:")}`)).trim();
+  if (mode === "3") return { back: true };
+  if (!["1", "2"].includes(mode)) return { error: "Invalid playback option." };
+  const url = (await ask(rl, promptLabel("Enter URL:"))).trim();
+  if (!url) return { error: "URL cannot be empty." };
+  return { args: mode === "2" ? ["--browser", url] : [url] };
+}
+
 async function basicMenu() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -154,15 +168,16 @@ async function basicMenu() {
         console.log(`   ${c.dim}${item.description}${c.reset}`);
       });
 
-      const choice = (await ask(rl, `\n${promptLabel("Pilih menu:")}`)).trim();
+      const choice = (await ask(rl, `\n${promptLabel("Select menu:")}`)).trim();
       if (choice === "1") {
-        const url = (await ask(rl, promptLabel("Masukkan URL:"))).trim();
-        if (!url) {
-          console.log(`\n${statusLine("URL kosong. Coba paste link video dulu.", "error")}\n`);
+        const stream = await askStream(rl);
+        if (stream.back) continue;
+        if (stream.error) {
+          console.log(`\n${statusLine(stream.error, "error")}\n`);
           continue;
         }
         rl.close();
-        return runPython([url]);
+        return runPython(stream.args);
       }
       if (choice === "2") {
         console.log();
@@ -171,7 +186,7 @@ async function basicMenu() {
         continue;
       }
       if (choice === "3") return 0;
-      console.log(`\n${statusLine("Pilihan tidak valid.", "error")}\n`);
+      console.log(`\n${statusLine("Invalid menu option.", "error")}\n`);
     }
   } finally {
     rl.close();
@@ -263,14 +278,15 @@ async function prettyMenu() {
       banner();
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       console.log(`${c.bold}Start Streaming${c.reset}`);
-      console.log(`${c.dim}Paste link dari provider yang didukung. Video player akan dibuka otomatis.${c.reset}\n`);
-      const url = (await ask(rl, promptLabel("Masukkan URL:"))).trim();
+      console.log(`${c.dim}Paste a link from a supported provider and choose where to watch.${c.reset}`);
+      const stream = await askStream(rl);
       rl.close();
-      if (!url) {
-        note = { message: "URL kosong. Coba paste link video dulu.", tone: "error" };
+      if (stream.back) continue;
+      if (stream.error) {
+        note = { message: stream.error, tone: "error" };
         continue;
       }
-      return runPython([url]);
+      return runPython(stream.args);
     }
 
     if (choice === 1) {
@@ -279,7 +295,7 @@ async function prettyMenu() {
       console.log(`${c.bold}Supported Providers${c.reset}\n`);
       runPython(["--list-providers"]);
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      await ask(rl, `\n${promptLabel("Tekan Enter untuk kembali...")}`);
+      await ask(rl, `\n${promptLabel("Press Enter to go back...")}`);
       rl.close();
       continue;
     }

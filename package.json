@@ -1,7 +1,7 @@
 {
   "name": "streamingcli",
-  "version": "0.2.0",
-  "description": "Stream hosted videos to your preferred local video player.",
+  "version": "0.3.0",
+  "description": "Stream hosted videos in your preferred local video player or browser.",
   "bin": {
     "streamingcli": "./bin/streamingcli.js"
   },
